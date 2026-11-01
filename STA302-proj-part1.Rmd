@@ -1,75 +1,42 @@
 ---
 title: "STA302 Final Project Part 1: Analysis Code"
-subtitle: "Socioeconomic Determinants of International Soccer Performance"
-author: "Group Project"
+subtitle: "Demographic, Anthropometric, and Clinical Determinants of Serum Triglyceride Levels"
+author: "Ella Charles, Alice Chen, Fatima Ghafoor, Adam Saldanha"
 ---
 
-## Data Cleaning. and Preperation
+### Demographic, Anthropometric, and Clinical Determinants of Serum Triglyceride Levels
 
-```{r}
-knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE) 
+## Data Ingestion and Clean
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
 library(dplyr)
-library(tidyr) 
+library(tidyr)
 library(knitr)
 ```
 
-### Load the merged dataset (assumed to be in the working directory)
-
 ```{r}
-df <- read.csv("wdi_fifa_merged.csv", stringsAsFactors = FALSE)
-```
+dat_raw <- readRDS("dat_final.rds")
 
-### Specify model variables
+write.csv(dat_raw, "nhanes_triglyceride_raw.csv", row.names = FALSE)
+names(dat_raw)
 
-```{r}
-model_vars <- c( 
-  "fifa_rank", #Response: Mean annual FIFA ranking (1 = best) 
-  "qualified", #Categorical predictor 1: World Cup qualification 
-  "income", #Categorical predictor 2: Income group (4 levels) 
-  "life_exp", #Continuous predictor 1: Life expectancy at birth
-  "log_gdp_pc", #Continuous predictor 2: Log GDP per capita 
-  "urban",  #Continuous predictor 3: Urban population percentage 
-  "unemp", #Continuous predictor 4: Unemployment rate 
-  "lfp_female", #Continuous predictor 5: Female labor force participation
-  "pop_growth", #Continuous predictor 6: Annual population growth rate 
-  "temp", #Continuous predictor 7: Mean temperature 
-  "health_exp" #Continuous predictor 8: Health expenditure (% of GDP) 
-  )
-```
+dat_clean <- dat_raw %>%
+  select(-any_of(c("id", "hdl", "ldl", "dbp", "sbp"))) %>%
+  drop_na() %>%
+  mutate(across(where(is.character), as.factor))
 
-### Clean data, factorize categorical variables, and keep complete cases
+write.csv(dat_clean, "nhanes_triglyceride_clean.csv", row.names = FALSE)
 
-```{r}
-df_clean <- df %>% 
-  mutate( 
-    qualified_cat = factor(qualified, levels = c(0, 1)), 
-    income = factor(income, levels = c( "High income", "Low income", "Lower middle income", "Upper middle income" )) 
-    ) %>% 
-    select(country, year, all_of(model_vars), qualified_cat) %>% 
-    drop_na()
-```
-
-### Save cleaned dataset for project submission
-
-```{r}
-write.csv(df_clean, "wdi_fifa_clean.csv", row.names = FALSE)
-```
-
-### Check sample size and categorical distributions
-
-```{r}
-dim(df_clean)
-table(Qualified = df_clean$qualified_cat)
-table(Income_Group = df_clean$income)
+dim(dat_clean)
 ```
 
 ## Summary Statistics
 
 ```{r}
-num_vars <- c("fifa_rank", "life_exp", "log_gdp_pc", "urban", "unemp",
-              "lfp_female", "pop_growth", "temp", "health_exp")
+num_vars <- names(select(dat_clean, where(is.numeric)))
 
-summary_stats <- df_clean %>%
+summary_stats <- dat_clean %>%
   summarise(across(all_of(num_vars), list(
     Mean   = ~mean(.x, na.rm = TRUE),
     SD     = ~sd(.x, na.rm = TRUE),
@@ -83,30 +50,35 @@ summary_stats <- df_clean %>%
 kable(
   summary_stats,
   digits = 2,
-  caption = "Summary statistics for FIFA ranking and continuous predictors (n = 1,825)."
+  caption = paste0("Summary statistics for serum triglycerides and continuous predictors (n = ", nrow(dat_clean), ").")
 )
+
+cat_vars <- names(select(dat_clean, where(is.factor)))
+
+for (v in cat_vars) {
+  cat("\nDistribution of", v, ":\n")
+  print(table(dat_clean[[v]]))
+}
 ```
 
 ## Preliminary Model Fitting
 
-### Model
+```{r}
+cat_var <- cat_vars[1]
+pred_num_vars <- setdiff(num_vars, "triglyceride")
+num_var <- pred_num_vars[1]
 
-```{r setup}
-# Mean-center life expectancy for meaningful main effect interpretation
-df_clean <- df_clean %>%
-  mutate(life_exp_c = life_exp - mean(life_exp, na.rm = TRUE))
-
-# Fit preliminary multiple linear regression model with centered interaction
 prelim_model <- lm(
-  fifa_rank ~ qualified_cat * life_exp_c + log_gdp_pc + income +
-    urban + unemp + lfp_female + pop_growth + temp + health_exp,
-  data = df_clean
+  triglyceride ~ age + sex + bmi + race_ethnicity + education + 
+                income_ratio + protein + carbs + fiber + 
+                sex * age,
+  data = dat_clean
 )
 
 summary(prelim_model)
 ```
 
-### OLS Estimates, Std Errors, and 95% CI intervals
+## OLS Estimates, Standard Errors, and 95% Confidence Intervals
 
 ```{r}
 coef_mat <- summary(prelim_model)$coefficients
@@ -126,16 +98,24 @@ model_table <- data.frame(
 
 kable(
   model_table,
-  caption = "OLS estimates, standard errors, and 95% CIs for preliminary model (n = 1,825)."
+  caption = paste0("OLS estimates, standard errors, and 95% CIs for preliminary model (n = ", nrow(dat_clean), ").")
 )
 ```
 
-### Residual Plots
+## Residual Analysis and Assumption Check
 
 ```{r}
+fit <- fitted(prelim_model)
+res <- resid(prelim_model)
 
-# Display directly in the knitted document
 par(mfrow = c(1, 4), mar = c(4.5, 4.5, 2.5, 1.5))
-plot(prelim_model, which = c(1, 2, 3, 5))
+
+plot(fit, dat_clean$triglyceride, pch = 16, cex = 0.5, col = "steelblue",
+     xlab = "Fitted Values", ylab = "Observed Triglycerides",
+     main = "Y vs. Fitted")
+abline(a = 0, b = 1, col = "red", lty = 2)
+
+plot(prelim_model, which = c(1, 2, 5), col = "steelblue", pch = 16, cex = 0.5)
+
 par(mfrow = c(1, 1))
 ```
