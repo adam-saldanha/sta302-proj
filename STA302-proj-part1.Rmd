@@ -4,7 +4,7 @@ subtitle: "Demographic, Anthropometric, and Clinical Determinants of Serum Trigl
 author: "Ella Charles, Alice Chen, Fatima Ghafoor, Adam Saldanha"
 ---
 
-### Demographic, Anthropometric, and Clinical Determinants of Serum Triglyceride Levels
+# Demographic, Anthropomorphic, and Clinical Determinants of Serum Triglyceride Levels
 
 ## Data Ingestion and Clean
 
