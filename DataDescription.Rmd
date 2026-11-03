@@ -1,0 +1,160 @@
+---
+title: 'STA302: Data descrition'
+output: html_document
+date: "2026-11-03"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Dataset Formation
+
+```{r dataset}
+library(haven)
+library(dplyr)
+
+setwd("/Users/ellacharles/Downloads/sta302")
+
+# Load files
+exam <- read_xpt("bloodpressure.xpt")
+bmx  <- read_xpt("bodymeasures.xpt")
+day1 <- read_xpt("day1diet.xpt")
+day2 <- read_xpt("day2diet.xpt")
+demo <- read_xpt("demographics.xpt")
+ldl <- read_xpt("ldl.xpt")
+hdl <- read_xpt("hdl.xpt")
+
+# Diet: sum within person-day, then average across days
+nutr <- c("KCAL","PROT","CARB","FIBE","SUGR","SFAT","SODI","POTA","ALCO")
+
+day1_person <- day1 %>%
+  filter(DR1DRSTZ == 1) %>%
+  group_by(SEQN) %>%
+  summarise(across(all_of(paste0("DR1I", nutr)), ~ sum(.x, na.rm = TRUE)),
+            .groups = "drop") %>%
+  rename_with(~ sub("^DR1I", "", .x), starts_with("DR1I"))
+
+day2_person <- day2 %>%
+  filter(DR2DRSTZ == 1) %>%
+  group_by(SEQN) %>%
+  summarise(across(all_of(paste0("DR2I", nutr)), ~ sum(.x, na.rm = TRUE)),
+            .groups = "drop") %>%
+  rename_with(~ sub("^DR2I", "", .x), starts_with("DR2I"))
+
+diet <- bind_rows(day1_person, day2_person) %>%
+  group_by(SEQN) %>%
+  summarise(across(everything(), ~ mean(.x, na.rm = TRUE)), .groups = "drop") %>%
+  rename(kcal = KCAL, protein = PROT, carbs = CARB, fiber = FIBE,
+         sugar = SUGR, satfat = SFAT, sodium = SODI, potassium = POTA,
+         alcohol = ALCO)
+
+# Merge
+dat <- demo %>%
+  left_join(exam, by = "SEQN") %>%
+  left_join(bmx,  by = "SEQN") %>%
+  left_join(ldl %>% dplyr::select(SEQN, LBXTLG, LBDLDL), by = "SEQN") %>%
+  left_join(diet, by = "SEQN") %>%
+  left_join(hdl %>% dplyr::select(SEQN, LBDHDD), by = "SEQN")
+
+# Select variables, build blood pressure, rename, make factors
+dat_clean <- dat %>%
+  dplyr::select(SEQN, RIDAGEYR, RIAGENDR, RIDRETH3, DMDEDUC2, INDFMPIR,
+                BMXBMI, protein, carbs, fiber, satfat, sodium, potassium, 
+                alcohol, LBDLDL, LBXTLG, LBDHDD,
+                BPXOSY1, BPXOSY2, BPXOSY3, BPXODI1, BPXODI2, BPXODI3) %>%
+  mutate(
+    sbp = rowMeans(cbind(BPXOSY1, BPXOSY2, BPXOSY3), na.rm = TRUE),
+    dbp = rowMeans(cbind(BPXODI1, BPXODI2, BPXODI3), na.rm = TRUE),
+    sbp = ifelse(is.nan(sbp), NA, sbp),
+    dbp = ifelse(is.nan(dbp), NA, dbp),
+    DMDEDUC2 = ifelse(DMDEDUC2 %in% c(7, 9), NA, DMDEDUC2)
+  ) %>%
+  dplyr::select(-BPXOSY1, -BPXOSY2, -BPXOSY3, -BPXODI1, -BPXODI2, -BPXODI3) %>%
+  rename(
+    id = SEQN,
+    age = RIDAGEYR,
+    sex = RIAGENDR,
+    race_ethnicity = RIDRETH3,
+    education = DMDEDUC2,
+    income_ratio = INDFMPIR,
+    bmi = BMXBMI,
+    sat_fat = satfat,
+    ldl = LBDLDL,
+    hdl = LBDHDD,
+    triglyceride = LBXTLG
+  ) %>%
+  mutate(
+    sex = factor(sex, levels = c(1, 2),
+                 labels = c("Male", "Female")),
+    race_ethnicity = factor(race_ethnicity,
+                            levels = c(3, 1, 2, 4, 6, 7),
+                            labels = c("NH White", "Mexican American", "Other Hispanic",
+                                       "NH Black", "NH Asian", "Other/Multiracial")),
+    education = factor(education, levels = 1:5,
+                       labels = c("<9th grade", "9-11th grade", "HS/GED",
+                                  "Some college/AA", "College grad+"))
+  )
+
+# Adults only, drop missing
+dat_final <- dat_clean %>%
+  filter(age >= 20, age <= 65) %>%
+  na.omit()
+
+saveRDS(dat_final, "dat_final.rds")
+```
+
+## Initial model
+```{r model}
+model <- lm(
+  triglyceride ~ age + sex + bmi + race_ethnicity + education + 
+                income_ratio + protein + carbs + fiber,
+  data = dat_final)
+
+```
+
+## Triglyceride Summary Statistics
+```{r summary stats}
+summary(dat_final$triglyceride)
+sd(dat_final$triglyceride, na.rm = TRUE)
+sum(is.na(dat_final$triglyceride))
+length(unique(dat_final$id)) == nrow(dat_final)
+```
+#Is it suitable for linear model? (independent and continuous?)
+Since each person is assigned an ID number we are able to verify independence of observations since each person appears only once in our final dataset.  Additionally, the triglyceride is continuous, but has an apparent right skew that will need to be corrected through a transformation. The 0 null values in the triglyceride variable is also important for maintaining all 1419 observations throughout any calculations.
+
+## Predictor Summary Statistics
+```{r summary stats}
+summary(dat_final[, c("age", "sex", "bmi", "race_ethnicity", "education",
+                      "income_ratio", "protein", "carbs", "fiber")])
+sapply(dat_final[, c("age", "bmi", "income_ratio", "protein", "carbs", "fiber")],
+       sd, na.rm = TRUE)
+sum(is.na(dat_final))
+```
+# Any skews, high variances, missing values, outliers?
+For all predictors, there are no missing values. The income_ratio and age predictors are roughly symmetric, BMI has a sight right skew indicating some high-end outliers. Protein, carbs, and fibre all have right skews indicating high-end outliers and the need for transformations to adjust for this. The categorical variables are all fairly representative of the American population with the ratio in the sample being comparabel to U.S. cencus data. Carbohydrates have the largest proportional variance followed by protein and fibre. None of them are allarmingly high or low. Additionally, there are no null values present in any predictors.
+
+
+## Interaction Term Analysis
+```{r interaction plots}
+library(ggplot2)
+library(tidyr)
+
+num_vars <- c("age", "bmi", "income_ratio", "protein", "carbs", "fiber")
+
+dat_long <- pivot_longer(dat_final, cols = all_of(num_vars),
+                         names_to = "predictor", values_to = "value")
+
+ggplot(dat_long, aes(x = value, y = triglyceride, color = education)) +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_wrap(~ predictor, scales = "free_x") +
+  theme_minimal()
+```
+It apprears that the relationship between fibre and triglycerides differ based on sex. Let's test this further.
+
+```{r interaction test}
+model_race <- update(model, . ~ . + education:carbs)   # swap in your candidate
+anova(model, model_race)
+AIC(model, model_race)
+```
+After runnign afew seperate examples, it seems that the interaction term between education and carbs improces the overall significance of the model the most, with a 0.092 significance level. This indicates that the impact of daily carbohydrate intake on triglycerides may be different for groups with different education levels.
