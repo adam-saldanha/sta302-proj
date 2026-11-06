@@ -71,7 +71,7 @@ num_var <- pred_num_vars[1]
 prelim_model <- lm(
   triglyceride ~ age + sex + bmi + race_ethnicity + education + 
                 income_ratio + protein + carbs + fiber + 
-                sex * age,
+                education * carbs,
   data = dat_clean
 )
 
@@ -105,17 +105,78 @@ kable(
 ## Residual Analysis and Assumption Check
 
 ```{r}
+# Reset active devices and set 1 plot per screen
+while (dev.cur() > 1) dev.off()
+par(mfrow = c(1, 1), mar = c(4.5, 4.5, 3, 1.5))
+
 fit <- fitted(prelim_model)
 res <- resid(prelim_model)
 
-par(mfrow = c(1, 4), mar = c(4.5, 4.5, 2.5, 1.5))
+# 1. Y vs. Fitted Values
+plot(fit, dat_clean$triglyceride, pch = 16, cex = 0.8, col = "steelblue",
+     xlab = "Fitted Values (mg/dL)", ylab = "Observed TG (mg/dL)",
+     main = "Condition 1: Y vs. Fitted Values")
+abline(a = 0, b = 1, col = "red", lty = 2, lwd = 1.5)
 
-plot(fit, dat_clean$triglyceride, pch = 16, cex = 0.5, col = "steelblue",
-     xlab = "Fitted Values", ylab = "Observed Triglycerides",
-     main = "Y vs. Fitted")
-abline(a = 0, b = 1, col = "red", lty = 2)
+# 2. Residuals vs. Fitted
+plot(prelim_model, which = 1, col = "steelblue", pch = 16, cex = 0.8,
+     caption = "", sub.caption = "")
+title(main = "Residuals vs. Fitted")
 
-plot(prelim_model, which = c(1, 2, 5), col = "steelblue", pch = 16, cex = 0.5)
+# 3. Normal Q-Q
+plot(prelim_model, which = 2, col = "steelblue", pch = 16, cex = 0.8,
+     caption = "", sub.caption = "")
+title(main = "Normal Q-Q Plot")
 
-par(mfrow = c(1, 1))
+# 4. Residuals vs. Leverage
+plot(prelim_model, which = 5, col = "steelblue", pch = 16, cex = 0.8,
+     caption = "", sub.caption = "")
+title(main = "Residuals vs. Leverage")
+
+# 5. Residuals vs. Age
+plot(dat_clean$age, res, pch = 16, cex = 0.8, col = "steelblue",
+     xlab = "Age (years)", ylab = "Residuals", main = "Residuals vs. Age")
+abline(h = 0, col = "red", lty = 2, lwd = 1.5)
+
+# 6. Residuals vs. BMI
+plot(dat_clean$bmi, res, pch = 16, cex = 0.8, col = "steelblue",
+     xlab = expression(BMI~(kg/m^2)), ylab = "Residuals", main = "Residuals vs. BMI")
+abline(h = 0, col = "red", lty = 2, lwd = 1.5)
+
+# 7. Residuals vs. Income Ratio
+plot(dat_clean$income_ratio, res, pch = 16, cex = 0.8, col = "steelblue",
+     xlab = "Income-to-Poverty Ratio", ylab = "Residuals", main = "Residuals vs. Income Ratio")
+abline(h = 0, col = "red", lty = 2, lwd = 1.5)
+
+# 8. Residuals vs. Protein
+plot(dat_clean$protein, res, pch = 16, cex = 0.8, col = "steelblue",
+     xlab = "Protein Intake (g)", ylab = "Residuals", main = "Residuals vs. Protein")
+abline(h = 0, col = "red", lty = 2, lwd = 1.5)
+
+# 9. Residuals vs. Carbs
+plot(dat_clean$carbs, res, pch = 16, cex = 0.8, col = "steelblue",
+     xlab = "Carbohydrate Intake (g)", ylab = "Residuals", main = "Residuals vs. Carbohydrates")
+abline(h = 0, col = "red", lty = 2, lwd = 1.5)
+
+# 10. Residuals vs. Fiber
+plot(dat_clean$fiber, res, pch = 16, cex = 0.8, col = "steelblue",
+     xlab = "Fiber Intake (g)", ylab = "Residuals", main = "Residuals vs. Fiber")
+abline(h = 0, col = "red", lty = 2, lwd = 1.5)
+
+# 11. Residuals by Sex
+boxplot(res ~ dat_clean$sex, col = "lightblue",
+        xlab = "Sex", ylab = "Residuals", main = "Residuals by Sex")
+abline(h = 0, col = "red", lty = 2, lwd = 1.5)
+
+# 12. Residuals by Race/Ethnicity
+boxplot(res ~ dat_clean$race_ethnicity, col = "lightblue",
+        xlab = "Race/Ethnicity", ylab = "Residuals", main = "Residuals by Race/Ethnicity",
+        las = 2, cex.axis = 0.85)
+abline(h = 0, col = "red", lty = 2, lwd = 1.5)
+
+# 13. Residuals by Education
+boxplot(res ~ dat_clean$education, col = "lightblue",
+        xlab = "Education Level", ylab = "Residuals", main = "Residuals by Education Level",
+        las = 2, cex.axis = 0.85)
+abline(h = 0, col = "red", lty = 2, lwd = 1.5)
 ```
