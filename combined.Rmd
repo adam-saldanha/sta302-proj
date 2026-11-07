@@ -1,0 +1,330 @@
+---
+title: "STA302 Final Project Part 1: Analysis Code"
+subtitle: "Demographic, Anthropometric, and Clinical Determinants of Serum Triglyceride Levels"
+author: "Ella Charles, Alice Chen, Fatima Ghafoor, Adam Saldanha"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Demographic and Nutritional Determinants of Serum Triglyceride Levels
+
+## Dataset Formation
+
+```{r dataset}
+library(haven)
+library(dplyr)
+library(tidyr)
+library(knitr)
+library(ggplot2)
+
+# Load files
+exam <- read.csv("bloodpressure.csv")
+bmx  <- read.csv("bodymeasures.csv")
+day1 <- read.csv("day1diet.csv")
+day2 <- read.csv("day2diet.csv")
+demo <- read.csv("demographics.csv")
+ldl <- read.csv("ldl.csv")
+hdl <- read.csv("hdl.csv")
+
+# Diet: sum within person-day, then average across days
+nutr <- c("KCAL","PROT","CARB","FIBE","SUGR","SFAT","SODI","POTA","ALCO")
+
+day1_person <- day1 %>%
+  filter(DR1DRSTZ == 1) %>%
+  group_by(SEQN) %>%
+  summarise(across(all_of(paste0("DR1I", nutr)), ~ sum(.x, na.rm = TRUE)),
+            .groups = "drop") %>%
+  rename_with(~ sub("^DR1I", "", .x), starts_with("DR1I"))
+
+day2_person <- day2 %>%
+  filter(DR2DRSTZ == 1) %>%
+  group_by(SEQN) %>%
+  summarise(across(all_of(paste0("DR2I", nutr)), ~ sum(.x, na.rm = TRUE)),
+            .groups = "drop") %>%
+  rename_with(~ sub("^DR2I", "", .x), starts_with("DR2I"))
+
+diet <- bind_rows(day1_person, day2_person) %>%
+  group_by(SEQN) %>%
+  summarise(across(everything(), ~ mean(.x, na.rm = TRUE)), .groups = "drop") %>%
+  rename(kcal = KCAL, protein = PROT, carbs = CARB, fiber = FIBE,
+         sugar = SUGR, satfat = SFAT, sodium = SODI, potassium = POTA,
+         alcohol = ALCO)
+
+# Merge
+dat <- demo %>%
+  left_join(exam, by = "SEQN") %>%
+  left_join(bmx,  by = "SEQN") %>%
+  left_join(ldl %>% dplyr::select(SEQN, LBXTLG, LBDLDL), by = "SEQN") %>%
+  left_join(diet, by = "SEQN") %>%
+  left_join(hdl %>% dplyr::select(SEQN, LBDHDD), by = "SEQN")
+
+# Select variables, build blood pressure, rename, make factors
+dat_clean <- dat %>%
+  dplyr::select(SEQN, RIDAGEYR, RIAGENDR, RIDRETH3, DMDEDUC2, INDFMPIR,
+                BMXBMI, protein, carbs, fiber, satfat, sodium, potassium, 
+                alcohol, LBDLDL, LBXTLG, LBDHDD,
+                BPXOSY1, BPXOSY2, BPXOSY3, BPXODI1, BPXODI2, BPXODI3) %>%
+  mutate(
+    sbp = rowMeans(cbind(BPXOSY1, BPXOSY2, BPXOSY3), na.rm = TRUE),
+    dbp = rowMeans(cbind(BPXODI1, BPXODI2, BPXODI3), na.rm = TRUE),
+    sbp = ifelse(is.nan(sbp), NA, sbp),
+    dbp = ifelse(is.nan(dbp), NA, dbp),
+    DMDEDUC2 = ifelse(DMDEDUC2 %in% c(7, 9), NA, DMDEDUC2)
+  ) %>%
+  dplyr::select(-BPXOSY1, -BPXOSY2, -BPXOSY3, -BPXODI1, -BPXODI2, -BPXODI3) %>%
+  rename(
+    id = SEQN,
+    age = RIDAGEYR,
+    sex = RIAGENDR,
+    race_ethnicity = RIDRETH3,
+    education = DMDEDUC2,
+    income_ratio = INDFMPIR,
+    bmi = BMXBMI,
+    sat_fat = satfat,
+    ldl = LBDLDL,
+    hdl = LBDHDD,
+    triglyceride = LBXTLG
+  ) %>%
+  mutate(
+    sex = factor(sex, levels = c(1, 2),
+                 labels = c("Male", "Female")),
+    race_ethnicity = factor(race_ethnicity,
+                            levels = c(3, 1, 2, 4, 6, 7),
+                            labels = c("NH White", "Mexican American", "Other Hispanic",
+                                       "NH Black", "NH Asian", "Other/Multiracial")),
+    education = factor(education, levels = 1:5,
+                       labels = c("<9th grade", "9-11th grade", "HS/GED",
+                                  "Some college/AA", "College grad+"))
+  )
+
+# Adults only, drop missing
+dat_final <- dat_clean %>%
+  filter(age >= 20, age <= 65) %>%
+  na.omit()
+
+write.csv(dat_final, "dat_final.csv", row.names = FALSE)
+```
+
+## Triglyceride Summary Statistics
+
+```{r table-response}
+x <- dat_final$triglyceride
+q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+iqr <- q[2] - q[1]
+
+trig_tab <- data.frame(
+  Statistic = c("n", "Missing", "Min", "Q1", "Median", "Mean", "Q3", "Max",
+                "SD", "IQR", "Outliers"),
+  Value = c(sum(!is.na(x)), sum(is.na(x)), min(x, na.rm = TRUE), q[1],
+            median(x, na.rm = TRUE), mean(x, na.rm = TRUE), q[2],
+            max(x, na.rm = TRUE), sd(x, na.rm = TRUE),
+            iqr, sum(x < q[1] - 1.5 * iqr | x > q[2] + 1.5 * iqr, na.rm = TRUE))
+)
+trig_tab$Value <- round(trig_tab$Value, 2)
+
+knitr::kable(trig_tab, row.names = FALSE,
+  caption = "Summary of Triglycerides (mg/dL)")
+```
+
+#Is it suitable for linear model? (independent and continuous?) Since each person is assigned an ID number we are able to verify independence of observations since each person appears only once in our final dataset. Additionally, the triglyceride is continuous, but has an apparent right skew that will need to be corrected through a transformation. The 0 null values in the triglyceride variable is also important for maintaining all 1419 observations throughout any calculations.
+
+## Numerical Predictor Summary Statistics
+
+```{r table-numerical-predictors}
+num_vars <- c("age", "bmi", "income_ratio", "protein", "carbs", "fiber")
+
+pred_tab <- t(sapply(dat_final[num_vars], function(x) {
+  q <- quantile(x, c(0.25, 0.75), na.rm = TRUE)
+  iqr <- q[2] - q[1]
+  c(Missing  = sum(is.na(x)),
+    Min      = min(x, na.rm = TRUE),
+    Q1       = q[[1]],
+    Median   = median(x, na.rm = TRUE),
+    Mean     = mean(x, na.rm = TRUE),
+    Q3       = q[[2]],
+    Max      = max(x, na.rm = TRUE),
+    SD       = sd(x, na.rm = TRUE),
+    Outliers = sum(x < q[1] - 1.5 * iqr | x > q[2] + 1.5 * iqr, na.rm = TRUE))
+}))
+
+knitr::kable(round(pred_tab, 2),
+  caption = "Summary of Numeric Predictors")
+```
+
+# Any skews, high variances, missing values, outliers?
+
+For all predictors, there are no missing values. The income_ratio and age predictors are roughly symmetric, BMI has a sight right skew indicating some high-end outliers. Protein, carbs, and fiber all have right skews indicating high-end outliers and the need for transformations to adjust for this. The categorical variables are all fairly representative of the American population with the ratio in the sample being comparable to U.S. census data.
+
+## Categorical Predictor Summary Statistics
+
+```{r table-categorical}
+cat_vars <- c("sex", "race_ethnicity", "education")
+
+cat_tab <- do.call(rbind, lapply(cat_vars, function(v) {
+  t <- table(dat_final[[v]], useNA = "ifany")
+  data.frame(Variable = v, Level = names(t), n = as.vector(t),
+             Percent = round(100 * as.vector(t) / sum(t), 1))
+}))
+
+knitr::kable(cat_tab, row.names = FALSE,
+  caption = "Summary of Categorical Predictors")
+```
+
+## Interaction Term Analysis
+
+```{r interaction plots}
+num_vars <- c("age", "bmi", "income_ratio", "protein", "carbs", "fiber")
+
+dat_long <- pivot_longer(dat_final, cols = all_of(num_vars),
+                         names_to = "predictor", values_to = "value")
+
+ggplot(dat_long, aes(x = value, y = triglyceride, color = education)) +
+  geom_smooth(method = "lm", se = FALSE) +
+  facet_wrap(~ predictor, scales = "free_x") +
+  theme_minimal()
+```
+
+It apprears that the relationship between carbohydrates and triglycerides differ based on education Let's test this further.
+
+```{r interaction test}
+base_model <- lm(
+  triglyceride ~ age + sex + bmi + race_ethnicity + education + 
+                income_ratio + protein + carbs + fiber,
+  data = dat_final
+)
+
+model_int <- update(base_model, . ~ . + education:carbs)
+anova(base_model, model_int)
+AIC(base_model, model_int)
+```
+
+After running a few separate examples, it seems that the interaction term between education and carbohydrates improves the overall significance of the model the most, with a 0.092 significance level. This indicates that the impact of daily carbohydrate intake on triglycerides may be different for groups with different education levels.
+
+## Data Ingestion and Clean
+
+```{r clean-export}
+dat_clean <- dat_final %>%
+  dplyr::select(-any_of(c("id", "hdl", "ldl", "dbp", "sbp", "sat_fat", "sodium", "potassium", "alcohol")))
+
+write.csv(dat_clean, "nhanes_triglyceride_clean.csv", row.names = FALSE)
+
+dim(dat_clean)
+```
+
+## Preliminary Model Fitting
+
+```{r prelim-model-fit}
+prelim_model <- lm(
+  triglyceride ~ age + sex + bmi + race_ethnicity + education + 
+                income_ratio + protein + carbs + fiber + 
+                education * carbs,
+  data = dat_clean
+)
+
+summary(prelim_model)
+```
+
+## OLS Estimates, Standard Errors, and 95% Confidence Intervals
+
+```{r ols-table-calc}
+coef_mat <- summary(prelim_model)$coefficients
+ci_mat   <- confint(prelim_model, level = 0.95)
+
+model_table <- data.frame(
+  Predictor = rownames(coef_mat),
+  Estimate  = round(coef_mat[, "Estimate"], 2),
+  SE        = round(coef_mat[, "Std. Error"], 2),
+  CI_Lower  = round(ci_mat[, 1], 2),
+  CI_Upper  = round(ci_mat[, 2], 2),
+  t_stat    = round(coef_mat[, "t value"], 2),
+  p_value   = ifelse(coef_mat[, "Pr(>|t|)"] < 0.001, "< 0.001", 
+                     round(coef_mat[, "Pr(>|t|)"], 3)),
+  row.names = NULL
+)
+
+kable(
+  model_table,
+  caption = paste0("OLS estimates, standard errors, and 95% CIs for preliminary model (n = ", nrow(dat_clean), ").")
+)
+```
+
+## Residual Analysis and Assumption Check
+
+```{r residual-diagnostic-plots, fig.width=8, fig.height=6}
+# Reset active devices and set 1 plot per screen
+while (dev.cur() > 1) dev.off()
+par(mfrow = c(1, 1), mar = c(4.5, 4.5, 3, 1.5))
+
+fit <- fitted(prelim_model)
+res <- resid(prelim_model)
+
+# 1. Y vs. Fitted Values
+plot(fit, dat_clean$triglyceride, pch = 16, cex = 0.8, col = "steelblue",
+     xlab = "Fitted Values (mg/dL)", ylab = "Observed TG (mg/dL)",
+     main = "Condition 1: Y vs. Fitted Values")
+abline(a = 0, b = 1, col = "red", lty = 2, lwd = 1.5)
+
+# 2. Residuals vs. Fitted
+plot(prelim_model, which = 1, col = "steelblue", pch = 16, cex = 0.8,
+     caption = "", sub.caption = "")
+title(main = "Residuals vs. Fitted")
+
+# 3. Normal Q-Q
+plot(prelim_model, which = 2, col = "steelblue", pch = 16, cex = 0.8,
+     caption = "", sub.caption = "")
+title(main = "Normal Q-Q Plot")
+
+# 4. Residuals vs. Leverage
+plot(prelim_model, which = 5, col = "steelblue", pch = 16, cex = 0.8,
+     caption = "", sub.caption = "")
+title(main = "Residuals vs. Leverage")
+
+# 5. Residuals vs. Age
+plot(dat_clean$age, res, pch = 16, cex = 0.8, col = "steelblue",
+     xlab = "Age (years)", ylab = "Residuals", main = "Residuals vs. Age")
+abline(h = 0, col = "red", lty = 2, lwd = 1.5)
+
+# 6. Residuals vs. BMI
+plot(dat_clean$bmi, res, pch = 16, cex = 0.8, col = "steelblue",
+     xlab = expression(BMI~(kg/m^2)), ylab = "Residuals", main = "Residuals vs. BMI")
+abline(h = 0, col = "red", lty = 2, lwd = 1.5)
+
+# 7. Residuals vs. Income Ratio
+plot(dat_clean$income_ratio, res, pch = 16, cex = 0.8, col = "steelblue",
+     xlab = "Income-to-Poverty Ratio", ylab = "Residuals", main = "Residuals vs. Income Ratio")
+abline(h = 0, col = "red", lty = 2, lwd = 1.5)
+
+# 8. Residuals vs. Protein
+plot(dat_clean$protein, res, pch = 16, cex = 0.8, col = "steelblue",
+     xlab = "Protein Intake (g)", ylab = "Residuals", main = "Residuals vs. Protein")
+abline(h = 0, col = "red", lty = 2, lwd = 1.5)
+
+# 9. Residuals vs. Carbs
+plot(dat_clean$carbs, res, pch = 16, cex = 0.8, col = "steelblue",
+     xlab = "Carbohydrate Intake (g)", ylab = "Residuals", main = "Residuals vs. Carbohydrates")
+abline(h = 0, col = "red", lty = 2, lwd = 1.5)
+
+# 10. Residuals vs. Fiber
+plot(dat_clean$fiber, res, pch = 16, cex = 0.8, col = "steelblue",
+     xlab = "Fiber Intake (g)", ylab = "Residuals", main = "Residuals vs. Fiber")
+abline(h = 0, col = "red", lty = 2, lwd = 1.5)
+
+# 11. Residuals by Sex
+boxplot(res ~ dat_clean$sex, col = "lightblue",
+        xlab = "Sex", ylab = "Residuals", main = "Residuals by Sex")
+abline(h = 0, col = "red", lty = 2, lwd = 1.5)
+
+# 12. Residuals by Race/Ethnicity
+boxplot(res ~ dat_clean$race_ethnicity, col = "lightblue",
+        xlab = "Race/Ethnicity", ylab = "Residuals", main = "Residuals by Race/Ethnicity",
+        las = 2, cex.axis = 0.85)
+abline(h = 0, col = "red", lty = 2, lwd = 1.5)
+
+# 13. Residuals by Education
+boxplot(res ~ dat_clean$education, col = "lightblue",
+        xlab = "Education Level", ylab = "Residuals", main = "Residuals by Education Level",
+        las = 2, cex.axis = 0.85)
+abline(h = 0, col = "red", lty = 2, lwd = 1.5)
+```
