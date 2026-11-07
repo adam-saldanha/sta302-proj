@@ -19,13 +19,13 @@ library(gapminder)
 setwd("/Users/ellacharles/Downloads/sta302")
 
 # Load files
-exam <- read_xpt("bloodpressure.xpt")
-bmx  <- read_xpt("bodymeasures.xpt")
-day1 <- read_xpt("day1diet.xpt")
-day2 <- read_xpt("day2diet.xpt")
-demo <- read_xpt("demographics.xpt")
-ldl <- read_xpt("ldl.xpt")
-hdl <- read_xpt("hdl.xpt")
+exam <- read.csv("bloodpressure.csv")
+bmx  <- read.csv("bodymeasures.csv")
+day1 <- read.csv("day1diet.csv")
+day2 <- read.csv("day2diet.csv")
+demo <- read.csv("demographics.csv")
+ldl <- read.csv("ldl.csv")
+hdl <- read.csv("hdl.csv")
 
 # Diet: sum within person-day, then average across days
 nutr <- c("KCAL","PROT","CARB","FIBE","SUGR","SFAT","SODI","POTA","ALCO")
@@ -103,7 +103,7 @@ dat_final <- dat_clean %>%
   filter(age >= 20, age <= 65) %>%
   na.omit()
 
-saveRDS(dat_final, "dat_final.rds")
+write.csv(dat_final, "dat_final.csv", row.names = FALSE)
 ```
 
 ## Initial model
