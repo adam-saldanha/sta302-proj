@@ -1,6 +1,6 @@
 ---
 title: "STA302 Final Project Part 1: Analysis Code"
-subtitle: "Demographic, Anthropometric, and Clinical Determinants of Serum Triglyceride Levels"
+subtitle: "Demographic and Nutritioinal Determinants of Serum Triglyceride Levels"
 author: "Ella Charles, Alice Chen, Fatima Ghafoor, Adam Saldanha"
 ---
 
@@ -202,7 +202,7 @@ AIC(base_model, model_int)
 
 After running a few separate examples, it seems that the interaction term between education and carbohydrates improves the overall significance of the model the most, with a 0.092 significance level. This indicates that the impact of daily carbohydrate intake on triglycerides may be different for groups with different education levels.
 
-## Data Ingestion and Clean
+## Data Load for Preliminary
 
 ```{r clean-export}
 dat_clean <- dat_final %>%
